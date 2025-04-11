@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>QR Code Sequence Reassembler</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }
+        #scanner-container { position: relative; margin: 20px 0; }
+        #video { width: 100%; background: black; }
+        #scan-region { position: absolute; border: 3px solid red; box-sizing: border-box; }
+        #result { margin-top: 20px; white-space: pre-wrap; word-wrap: break-word; }
+        button { padding: 10px 15px; margin: 5px; font-size: 16px; }
+        #progress { margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>QR Code Sequence Reassembler</h1>
+    
+    <div id="controls">
+        <button id="start-btn">Start Scanning</button>
+        <button id="reset-btn">Reset</button>
+        <button id="export-btn">Export Combined Text</button>
+    </div>
+    
+    <div id="progress">
+        Scanned parts: <span id="parts-count">0</span>
+        Total length: <span id="total-length">0</span> chars
+    </div>
+    
+    <div id="scanner-container">
+        <video id="video" muted playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div id="scan-region"></div>
+    </div>
+    
+    <div>
+        <h3>Combined Text:</h3>
+        <textarea id="result" rows="10" style="width:100%;" readonly></textarea>
+    </div>
+
+    <script>
+        // Global variables
+        let combinedText = "";
+        let scannedParts = 0;
+        let videoStream = null;
+        let isScanning = false;
+        
+        // DOM elements
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('canvas');
+        const scanRegion = document.getElementById('scan-region');
+        const result = document.getElementById('result');
+        const partsCount = document.getElementById('parts-count');
+        const totalLength = document.getElementById('total-length');
+        
+        // Buttons
+        document.getElementById('start-btn').addEventListener('click', startScanning);
+        document.getElementById('reset-btn').addEventListener('click', resetScanner);
+        document.getElementById('export-btn').addEventListener('click', exportText);
+        
+        // Initialize scanner
+        function startScanning() {
+            if (isScanning) return;
+            
+            combinedText = "";
+            scannedParts = 0;
+            updateUI();
+            
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+                .then(function(stream) {
+                    videoStream = stream;
+                    video.srcObject = stream;
+                    video.play();
+                    isScanning = true;
+                    requestAnimationFrame(scanQR);
+                })
+                .catch(function(err) {
+                    alert("Error accessing camera: " + err);
+                });
+        }
+        
+        // QR scanning function
+        function scanQR() {
+            if (!isScanning) return;
+            
+            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const code = jsQR(imageData.data, imageData.width, imageData.height);
+                
+                if (code) {
+                    // Check if this is a new part (simple deduplication)
+                    if (!combinedText.includes(code.data)) {
+                        combinedText += code.data;
+                        scannedParts++;
+                        updateUI();
+                    }
+                }
+            }
+            
+            requestAnimationFrame(scanQR);
+        }
+        
+        // Stop scanning and clean up
+        function stopScanning() {
+            isScanning = false;
+            if (videoStream) {
+                videoStream.getTracks().forEach(track => track.stop());
+                video.srcObject = null;
+            }
+        }
+        
+        // Reset everything
+        function resetScanner() {
+            stopScanning();
+            combinedText = "";
+            scannedParts = 0;
+            updateUI();
+        }
+        
+        // Update UI elements
+        function updateUI() {
+            result.value = combinedText;
+            partsCount.textContent = scannedParts;
+            totalLength.textContent = combinedText.length;
+        }
+        
+        // Export the combined text
+        function exportText() {
+            if (combinedText) {
+                // Create a downloadable file
+                const blob = new Blob([combinedText], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'reassembled-code.txt';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } else {
+                alert("No text to export!");
+            }
+        }
+        
+        // Initialize
+        resetScanner();
+    </script>
+</body>
+</html>
